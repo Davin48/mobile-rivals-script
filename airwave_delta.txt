@@ -1,0 +1,835 @@
+-- air.wave DELTA MOBILE - Optimized for Delta Executor
+-- Delta Mobile compatible version with native Roblox UI
+
+-- ============================================
+-- DELTA MOBILE OPTIMIZED
+-- ============================================
+
+if getgenv().AIRWAVE_DELTA_LOADED then
+    return
+end
+getgenv().AIRWAVE_DELTA_LOADED = true
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Players = game:GetService("Players")
+local localPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local camera = workspace.CurrentCamera
+local TeleportService = game:GetService("TeleportService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- ============================================
+-- NATIVE ESP SYSTEM (BillboardGui based - Delta compatible)
+-- ============================================
+local ESPStorage = {}
+local ESPFolder = Instance.new("Folder")
+ESPFolder.Name = "AirwaveESP"
+ESPFolder.Parent = workspace
+
+local ESPConfig = {
+    Enabled = false,
+    Boxes = true,
+    Names = true,
+    Distance = true,
+    Health = true,
+    EnemyOnly = false,
+    MaxDistance = 1000,
+}
+
+local function IsEnemy(player)
+    if not player or player == localPlayer then return false end
+    if player.Team and localPlayer.Team then
+        return player.Team ~= localPlayer.Team
+    end
+    if player.TeamColor and localPlayer.TeamColor then
+        return player.TeamColor ~= localPlayer.TeamColor
+    end
+    return true
+end
+
+local function CreateESP(player)
+    if ESPStorage[player] then return end
+    
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = player.Name .. "_ESP"
+    billboard.AlwaysOnTop = true
+    billboard.Size = UDim2.new(0, 100, 0, 60)
+    billboard.StudsOffset = Vector3.new(0, 3, 0)
+    billboard.ClipsDescendants = false
+    
+    -- Box Frame
+    local boxFrame = Instance.new("Frame")
+    boxFrame.Name = "Box"
+    boxFrame.Size = UDim2.new(1, 0, 0, 40)
+    boxFrame.Position = UDim2.new(0, 0, 0, 15)
+    boxFrame.BackgroundTransparency = 0.8
+    boxFrame.BorderSizePixel = 2
+    boxFrame.Parent = billboard
+    
+    -- Name Label
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Name = "Name"
+    nameLabel.Size = UDim2.new(1, 0, 0, 15)
+    nameLabel.Position = UDim2.new(0, 0, 0, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = player.DisplayName
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextStrokeTransparency = 0
+    nameLabel.TextSize = 10
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.Parent = billboard
+    
+    -- Distance Label
+    local distLabel = Instance.new("TextLabel")
+    distLabel.Name = "Distance"
+    distLabel.Size = UDim2.new(1, 0, 0, 12)
+    distLabel.Position = UDim2.new(0, 0, 0, 55)
+    distLabel.BackgroundTransparency = 1
+    distLabel.Text = "0m"
+    distLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    distLabel.TextStrokeTransparency = 0
+    distLabel.TextSize = 9
+    distLabel.Font = Enum.Font.Gotham
+    distLabel.Parent = billboard
+    
+    -- Health Bar Background
+    local healthBG = Instance.new("Frame")
+    healthBG.Name = "HealthBG"
+    healthBG.Size = UDim2.new(1, -4, 0, 4)
+    healthBG.Position = UDim2.new(0, 2, 0, 43)
+    healthBG.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    healthBG.BorderSizePixel = 0
+    healthBG.Parent = billboard
+    
+    local healthBar = Instance.new("Frame")
+    healthBar.Name = "HealthBar"
+    healthBar.Size = UDim2.new(1, 0, 1, 0)
+    healthBar.BackgroundColor3 = Color3.fromRGB(60, 220, 60)
+    healthBar.BorderSizePixel = 0
+    healthBar.Parent = healthBG
+    
+    ESPStorage[player] = {
+        billboard = billboard,
+        box = boxFrame,
+        name = nameLabel,
+        distance = distLabel,
+        healthBar = healthBar,
+        healthBG = healthBG,
+    }
+end
+
+local function RemoveESP(player)
+    if ESPStorage[player] then
+        if ESPStorage[player].billboard then
+            ESPStorage[player].billboard:Destroy()
+        end
+        ESPStorage[player] = nil
+    end
+end
+
+-- ESP Update Loop
+RunService.RenderStepped:Connect(function()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player == localPlayer then continue end
+        
+        if not ESPConfig.Enabled then
+            RemoveESP(player)
+            continue
+        end
+        
+        local isEnemy = IsEnemy(player)
+        
+        -- Enemy Only Check
+        if ESPConfig.EnemyOnly and not isEnemy then
+            RemoveESP(player)
+            continue
+        end
+        
+        local char = player.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local head = char and char:FindFirstChild("Head")
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        
+        if not char or not root or not humanoid then
+            RemoveESP(player)
+            continue
+        end
+        
+        if humanoid.Health <= 0 then
+            RemoveESP(player)
+            continue
+        end
+        
+        if not ESPStorage[player] then
+            CreateESP(player)
+        end
+        
+        local esp = ESPStorage[player]
+        esp.billboard.Adornee = root
+        
+        -- Color
+        local enemyColor = Color3.fromRGB(255, 60, 60)
+        local teamColor = Color3.fromRGB(60, 255, 100)
+        local color = isEnemy and enemyColor or teamColor
+        
+        -- Distance
+        local myRoot = localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local dist = myRoot and (root.Position - myRoot.Position).Magnitude or 0
+        
+        if dist > ESPConfig.MaxDistance then
+            esp.billboard.Enabled = false
+            continue
+        end
+        
+        esp.billboard.Enabled = true
+        
+        -- Update Box
+        esp.box.Visible = ESPConfig.Boxes
+        esp.box.BackgroundColor3 = color
+        esp.box.BorderColor3 = color
+        
+        -- Update Name
+        esp.name.Visible = ESPConfig.Names
+        esp.name.TextColor3 = color
+        
+        -- Update Distance
+        esp.distance.Visible = ESPConfig.Distance
+        esp.distance.Text = string.format("%.0fm", dist)
+        
+        -- Update Health
+        esp.healthBG.Visible = ESPConfig.Health
+        esp.healthBar.Visible = ESPConfig.Health
+        local hpPercent = humanoid.Health / humanoid.MaxHealth
+        esp.healthBar.Size = UDim2.new(hpPercent, 0, 1, 0)
+        esp.healthBar.BackgroundColor3 = Color3.fromRGB(
+            255 * (1 - hpPercent),
+            255 * hpPercent,
+            60
+        )
+    end
+end)
+
+Players.PlayerRemoving:Connect(RemoveESP)
+
+-- ============================================
+-- AIMBOT SYSTEM (Delta Compatible)
+-- ============================================
+local AimbotConfig = {
+    Enabled = false,
+    TeamCheck = true,
+    AimPart = "Head",
+    MaxDistance = 200,
+    Smoothness = 2,
+    AutoFire = false,
+}
+
+local function GetClosestPlayer()
+    local closest = nil
+    local shortestDist = math.huge
+    local center = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+    local camPos = camera.CFrame.Position
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player == localPlayer then continue end
+        
+        if AimbotConfig.TeamCheck then
+            local isSameTeam = false
+            if player.Team and localPlayer.Team then
+                isSameTeam = player.Team == localPlayer.Team
+            elseif player.TeamColor and localPlayer.TeamColor then
+                isSameTeam = player.TeamColor == localPlayer.TeamColor
+            end
+            if isSameTeam then continue end
+        end
+        
+        local char = player.Character
+        local part = char and char:FindFirstChild(AimbotConfig.AimPart)
+        if not part then continue end
+        
+        local worldDist = (part.Position - camPos).Magnitude
+        if worldDist > AimbotConfig.MaxDistance then continue end
+        
+        local screenPos, visible = camera:WorldToViewportPoint(part.Position)
+        if not visible then continue end
+        
+        local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+        if screenDist < shortestDist then
+            shortestDist = screenDist
+            closest = part
+        end
+    end
+    
+    return closest
+end
+
+-- Aimbot Loop
+RunService.RenderStepped:Connect(function()
+    if not AimbotConfig.Enabled then return end
+    
+    local target = GetClosestPlayer()
+    if target then
+        local pos = camera:WorldToViewportPoint(target.Position)
+        local centerX = camera.ViewportSize.X / 2
+        local centerY = camera.ViewportSize.Y / 2
+        
+        local deltaX = (pos.X - centerX) / AimbotConfig.Smoothness
+        local deltaY = (pos.Y - centerY) / AimbotConfig.Smoothness
+        
+        -- Delta compatible mouse movement
+        pcall(function()
+            if mousemoverel then
+                mousemoverel(deltaX, deltaY)
+            end
+        end)
+        
+        if AimbotConfig.AutoFire then
+            pcall(mouse1click)
+        end
+    end
+end)
+
+-- ============================================
+-- SILENT AIM (Auto-lock nearest)
+-- ============================================
+local SilentAimEnabled = false
+local SilentAimTarget = nil
+
+local function GetSilentAimTarget()
+    local closest = nil
+    local shortestDist = math.huge
+    local center = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player == localPlayer then continue end
+        local char = player.Character
+        local head = char and char:FindFirstChild("Head")
+        if not head then continue end
+        
+        local screenPos, visible = camera:WorldToViewportPoint(head.Position)
+        if not visible then continue end
+        
+        local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+        if dist < shortestDist and dist < 250 then
+            shortestDist = dist
+            closest = head
+        end
+    end
+    return closest
+end
+
+RunService.Heartbeat:Connect(function()
+    if SilentAimEnabled then
+        SilentAimTarget = GetSilentAimTarget()
+        if SilentAimTarget then
+            pcall(function()
+                camera.CFrame = CFrame.new(camera.CFrame.Position, SilentAimTarget.Position)
+            end)
+        end
+    end
+end)
+
+-- ============================================
+-- SPEEDHACK
+-- ============================================
+local Speedhack = {Enabled = false, Speed = 32}
+
+RunService.Heartbeat:Connect(function()
+    if Speedhack.Enabled and localPlayer.Character then
+        local hum = localPlayer.Character:FindFirstChildOfClass("Humanoid")
+        local root = localPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if hum and root and hum.MoveDirection.Magnitude > 0 then
+            root.Velocity = hum.MoveDirection * Speedhack.Speed + Vector3.new(0, root.Velocity.Y, 0)
+        end
+    end
+end)
+
+-- ============================================
+-- BHOP
+-- ============================================
+local BHOP = {Enabled = false}
+
+RunService.Heartbeat:Connect(function()
+    if BHOP.Enabled and localPlayer.Character then
+        local hum = localPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum and hum:GetState() == Enum.HumanoidStateType.Landed then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+-- ============================================
+-- NOCLIP
+-- ============================================
+local Noclip = {Enabled = false, Connection = nil}
+
+-- ============================================
+-- FLY
+-- ============================================
+local Fly = {Enabled = false, Speed = 50, BodyG = nil, BodyV = nil}
+
+local function StartFly()
+    if not localPlayer.Character then return end
+    local root = localPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    if Fly.BodyG then Fly.BodyG:Destroy() end
+    if Fly.BodyV then Fly.BodyV:Destroy() end
+    
+    Fly.BodyG = Instance.new("BodyGyro")
+    Fly.BodyG.P = 9e4
+    Fly.BodyG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    Fly.BodyG.CFrame = root.CFrame
+    Fly.BodyG.Parent = root
+    
+    Fly.BodyV = Instance.new("BodyVelocity")
+    Fly.BodyV.Velocity = Vector3.new(0, 0, 0)
+    Fly.BodyV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    Fly.BodyV.Parent = root
+end
+
+local function StopFly()
+    if Fly.BodyG then Fly.BodyG:Destroy() end
+    if Fly.BodyV then Fly.BodyV:Destroy() end
+    Fly.BodyG = nil
+    Fly.BodyV = nil
+end
+
+RunService.Heartbeat:Connect(function()
+    if Fly.Enabled and Fly.BodyV and Fly.BodyG then
+        local camCF = camera.CFrame
+        local vel = Vector3.new(0, 0, 0)
+        
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            vel = vel + camCF.LookVector * Fly.Speed
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            vel = vel - camCF.LookVector * Fly.Speed
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            vel = vel - camCF.RightVector * Fly.Speed
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            vel = vel + camCF.RightVector * Fly.Speed
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            vel = vel + Vector3.new(0, Fly.Speed, 0)
+        end
+        
+        Fly.BodyV.Velocity = vel
+        Fly.BodyG.CFrame = camCF
+    end
+end)
+
+-- ============================================
+-- AFK FARM
+-- ============================================
+local AFKFarm = {Enabled = false, Map = "Arena", Weapon = "Assault Rifle"}
+
+spawn(function()
+    while wait(1) do
+        if AFKFarm.Enabled then
+            pcall(function()
+                ReplicatedStorage.Remotes.Matchmaking.JoinQueue:InvokeServer("1v1")
+            end)
+            pcall(function()
+                ReplicatedStorage.Remotes.Duels.VoteMap:FireServer(AFKFarm.Map)
+            end)
+            pcall(function()
+                ReplicatedStorage.Remotes.Replication.Fighter.PickWeapons:FireServer({AFKFarm.Weapon, "Handgun", "Fists"})
+            end)
+        end
+    end
+end)
+
+-- ============================================
+-- DELTA MOBILE UI
+-- ============================================
+local function CreateMobileUI()
+    local playerGui = localPlayer:WaitForChild("PlayerGui")
+    
+    -- Remove old
+    for _, gui in pairs(playerGui:GetChildren()) do
+        if gui.Name == "DeltaAirwave" then
+            gui:Destroy()
+        end
+    end
+    
+    -- Main ScreenGui
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "DeltaAirwave"
+    screenGui.Parent = playerGui
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    
+    -- Main Frame (Draggable)
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0, 300, 0, 450)
+    mainFrame.Position = UDim2.new(0.5, -150, 0.5, -225)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = screenGui
+    mainFrame.Active = true
+    mainFrame.Draggable = true
+    
+    Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 10)
+    
+    -- Header
+    local header = Instance.new("Frame")
+    header.Size = UDim2.new(1, 0, 0, 40)
+    header.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+    header.Parent = mainFrame
+    
+    Instance.new("UICorner", header).CornerRadius = UDim.new(0, 10)
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -80, 1, 0)
+    title.Position = UDim2.new(0, 10, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "Delta Airwave"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 18
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = header
+    
+    -- Close Button
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 30, 0, 30)
+    closeBtn.Position = UDim2.new(1, -35, 0.5, -15)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+    closeBtn.Text = "X"
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.Parent = header
+    Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+    
+    -- Hide Button
+    local hideBtn = Instance.new("TextButton")
+    hideBtn.Size = UDim2.new(0, 30, 0, 30)
+    hideBtn.Position = UDim2.new(1, -70, 0.5, -15)
+    hideBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 100)
+    hideBtn.Text = "-"
+    hideBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    hideBtn.Font = Enum.Font.GothamBold
+    hideBtn.Parent = header
+    Instance.new("UICorner", hideBtn).CornerRadius = UDim.new(0, 6)
+    
+    -- Content Frame
+    local content = Instance.new("ScrollingFrame")
+    content.Size = UDim2.new(1, -10, 1, -45)
+    content.Position = UDim2.new(0, 5, 0, 40)
+    content.BackgroundTransparency = 1
+    content.ScrollBarThickness = 4
+    content.CanvasSize = UDim2.new(0, 0, 0, 800)
+    content.Parent = mainFrame
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 5)
+    layout.Parent = content
+    
+    -- Helper to make elements
+    local function AddSection(name)
+        local section = Instance.new("TextLabel")
+        section.Size = UDim2.new(1, -5, 0, 25)
+        section.BackgroundColor3 = Color3.fromRGB(60, 80, 120)
+        section.Text = "  " .. name
+        section.TextColor3 = Color3.fromRGB(255, 255, 255)
+        section.TextSize = 14
+        section.Font = Enum.Font.GothamBold
+        section.TextXAlignment = Enum.TextXAlignment.Left
+        section.Parent = content
+        Instance.new("UICorner", section).CornerRadius = UDim.new(0, 6)
+        return section
+    end
+    
+    local function AddToggle(text, default, callback)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, -5, 0, 35)
+        frame.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+        frame.Parent = content
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+        
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(0.6, 0, 1, 0)
+        label.Position = UDim2.new(0, 10, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = text
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.TextSize = 12
+        label.Font = Enum.Font.Gotham
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = frame
+        
+        local toggle = Instance.new("TextButton")
+        toggle.Size = UDim2.new(0, 50, 0, 25)
+        toggle.Position = UDim2.new(1, -55, 0.5, -12.5)
+        toggle.BackgroundColor3 = default and Color3.fromRGB(60, 200, 60) or Color3.fromRGB(100, 100, 100)
+        toggle.Text = default and "ON" or "OFF"
+        toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+        toggle.TextSize = 12
+        toggle.Font = Enum.Font.GothamBold
+        toggle.Parent = frame
+        Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 6)
+        
+        local state = default
+        toggle.MouseButton1Click:Connect(function()
+            state = not state
+            toggle.BackgroundColor3 = state and Color3.fromRGB(60, 200, 60) or Color3.fromRGB(100, 100, 100)
+            toggle.Text = state and "ON" or "OFF"
+            if callback then callback(state) end
+        end)
+        
+        return toggle
+    end
+    
+    local function AddSlider(text, min, default, max, callback)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, -5, 0, 50)
+        frame.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+        frame.Parent = content
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+        
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -10, 0, 20)
+        label.Position = UDim2.new(0, 10, 0, 5)
+        label.BackgroundTransparency = 1
+        label.Text = text .. ": " .. tostring(default)
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.TextSize = 12
+        label.Font = Enum.Font.Gotham
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = frame
+        
+        local sliderBG = Instance.new("TextButton")
+        sliderBG.Size = UDim2.new(1, -20, 0, 20)
+        sliderBG.Position = UDim2.new(0, 10, 0, 25)
+        sliderBG.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+        sliderBG.Text = ""
+        sliderBG.Parent = frame
+        Instance.new("UICorner", sliderBG).CornerRadius = UDim.new(0, 4)
+        
+        local fill = Instance.new("Frame")
+        fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+        fill.BackgroundColor3 = Color3.fromRGB(100, 150, 200)
+        fill.Parent = sliderBG
+        Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 4)
+        
+        sliderBG.MouseButton1Click:Connect(function(x)
+            local pos = math.clamp((x - sliderBG.AbsolutePosition.X) / sliderBG.AbsoluteSize.X, 0, 1)
+            local value = math.floor(min + (max - min) * pos)
+            fill.Size = UDim2.new(pos, 0, 1, 0)
+            label.Text = text .. ": " .. tostring(value)
+            if callback then callback(value) end
+        end)
+        
+        return fill
+    end
+    
+    local function AddDropdown(text, options, default, callback)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, -5, 0, 35)
+        frame.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+        frame.Parent = content
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+        
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(0.4, 0, 1, 0)
+        label.Position = UDim2.new(0, 10, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = text
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.TextSize = 12
+        label.Font = Enum.Font.Gotham
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = frame
+        
+        local drop = Instance.new("TextButton")
+        drop.Size = UDim2.new(0.6, -15, 0, 25)
+        drop.Position = UDim2.new(0.4, 5, 0.5, -12.5)
+        drop.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+        drop.Text = default
+        drop.TextColor3 = Color3.fromRGB(255, 255, 255)
+        drop.TextSize = 11
+        drop.Font = Enum.Font.Gotham
+        drop.Parent = frame
+        Instance.new("UICorner", drop).CornerRadius = UDim.new(0, 4)
+        
+        local expanded = false
+        local optionsFrame = nil
+        
+        drop.MouseButton1Click:Connect(function()
+            expanded = not expanded
+            if expanded then
+                frame.Size = UDim2.new(1, -5, 0, 35 + (#options * 30))
+                
+                optionsFrame = Instance.new("Frame")
+                optionsFrame.Size = UDim2.new(1, 0, 0, #options * 30)
+                optionsFrame.Position = UDim2.new(0, 0, 0, 35)
+                optionsFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+                optionsFrame.Parent = frame
+                
+                for i, opt in ipairs(options) do
+                    local optBtn = Instance.new("TextButton")
+                    optBtn.Size = UDim2.new(1, -10, 0, 28)
+                    optBtn.Position = UDim2.new(0, 5, 0, (i-1) * 30)
+                    optBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 90)
+                    optBtn.Text = opt
+                    optBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    optBtn.TextSize = 11
+                    optBtn.Font = Enum.Font.Gotham
+                    optBtn.Parent = optionsFrame
+                    Instance.new("UICorner", optBtn).CornerRadius = UDim.new(0, 4)
+                    
+                    optBtn.MouseButton1Click:Connect(function()
+                        drop.Text = opt
+                        expanded = false
+                        frame.Size = UDim2.new(1, -5, 0, 35)
+                        optionsFrame:Destroy()
+                        if callback then callback(opt) end
+                    end)
+                end
+            else
+                frame.Size = UDim2.new(1, -5, 0, 35)
+                if optionsFrame then
+                    optionsFrame:Destroy()
+                end
+            end
+        end)
+        
+        return drop
+    end
+    
+    local function AddButton(text, callback)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -5, 0, 35)
+        btn.BackgroundColor3 = Color3.fromRGB(60, 100, 160)
+        btn.Text = text
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.TextSize = 14
+        btn.Font = Enum.Font.GothamBold
+        btn.Parent = content
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+        
+        btn.MouseButton1Click:Connect(function()
+            if callback then callback() end
+        end)
+        
+        return btn
+    end
+    
+    -- UI ELEMENTS
+    
+    -- AIMBOT SECTION
+    AddSection("AIMBOT")
+    AddToggle("Enable Aimbot", false, function(v) AimbotConfig.Enabled = v end)
+    AddToggle("Team Check", true, function(v) AimbotConfig.TeamCheck = v end)
+    AddToggle("Auto Fire", false, function(v) AimbotConfig.AutoFire = v end)
+    AddDropdown("Aim Part", {"Head", "HumanoidRootPart", "Torso"}, "Head", function(v) AimbotConfig.AimPart = v end)
+    AddSlider("Max Distance", 50, 200, 1000, function(v) AimbotConfig.MaxDistance = v end)
+    AddSlider("Smoothness", 1, 2, 10, function(v) AimbotConfig.Smoothness = v end)
+    
+    -- SILENT AIM
+    AddSection("SILENT AIM")
+    AddToggle("Enable Silent Aim", false, function(v) SilentAimEnabled = v end)
+    
+    -- ESP SECTION
+    AddSection("ESP")
+    AddToggle("Enable ESP", false, function(v) ESPConfig.Enabled = v end)
+    AddToggle("Boxes", true, function(v) ESPConfig.Boxes = v end)
+    AddToggle("Names", true, function(v) ESPConfig.Names = v end)
+    AddToggle("Distance", true, function(v) ESPConfig.Distance = v end)
+    AddToggle("Health Bar", true, function(v) ESPConfig.Health = v end)
+    AddToggle("Enemy Only", false, function(v) ESPConfig.EnemyOnly = v end)
+    AddSlider("Max Distance", 100, 1000, 5000, function(v) ESPConfig.MaxDistance = v end)
+    
+    -- MISC SECTION
+    AddSection("MISC")
+    AddToggle("Speedhack", false, function(v) Speedhack.Enabled = v end)
+    AddSlider("Speed Value", 16, 32, 300, function(v) Speedhack.Speed = v end)
+    AddToggle("Bunny Hop", false, function(v) BHOP.Enabled = v end)
+    AddToggle("Fly", false, function(v)
+        Fly.Enabled = v
+        if v then StartFly() else StopFly() end
+    end)
+    AddSlider("Fly Speed", 10, 50, 200, function(v) Fly.Speed = v end)
+    AddToggle("NoClip", false, function(v)
+        Noclip.Enabled = v
+        if v then
+            Noclip.Connection = RunService.Stepped:Connect(function()
+                for _, part in pairs(localPlayer.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then part.CanCollide = false end
+                end
+            end)
+        else
+            if Noclip.Connection then Noclip.Connection:Disconnect() end
+            for _, part in pairs(localPlayer.Character:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = true end
+            end
+        end
+    end)
+    
+    AddButton("Rejoin Server", function()
+        TeleportService:Teleport(17625359962, localPlayer)
+    end)
+    
+    -- AFK FARM SECTION
+    AddSection("AFK FARM")
+    AddToggle("Enable AFK Farm", false, function(v) AFKFarm.Enabled = v end)
+    AddDropdown("Map", {"Arena", "Ruins", "Construction", "Desert", "Warehouse"}, "Arena", function(v) AFKFarm.Map = v end)
+    AddDropdown("Weapon", {"Assault Rifle", "Handgun", "Fists", "Shotgun", "SMG"}, "Assault Rifle", function(v) AFKFarm.Weapon = v end)
+    
+    -- Hide/Show
+    local hidden = false
+    local openBtn = nil
+    
+    hideBtn.MouseButton1Click:Connect(function()
+        hidden = not hidden
+        if hidden then
+            mainFrame.Size = UDim2.new(0, 300, 0, 40)
+            content.Visible = false
+            hideBtn.Text = "+"
+        else
+            mainFrame.Size = UDim2.new(0, 300, 0, 450)
+            content.Visible = true
+            hideBtn.Text = "-"
+        end
+    end)
+    
+    closeBtn.MouseButton1Click:Connect(function()
+        screenGui.Enabled = false
+        
+        -- Create open button
+        if not openBtn then
+            openBtn = Instance.new("TextButton")
+            openBtn.Size = UDim2.new(0, 60, 0, 60)
+            openBtn.Position = UDim2.new(0, 10, 0.5, -30)
+            openBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 180)
+            openBtn.Text = "☰"
+            openBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            openBtn.TextSize = 24
+            openBtn.Font = Enum.Font.GothamBold
+            openBtn.Parent = screenGui
+            Instance.new("UICorner", openBtn).CornerRadius = UDim.new(1, 0)
+            openBtn.Draggable = true
+            
+            openBtn.MouseButton1Click:Connect(function()
+                screenGui.Enabled = true
+                openBtn.Visible = false
+            end)
+        else
+            openBtn.Visible = true
+        end
+    end)
+end
+
+-- Create UI when character loads
+if localPlayer.Character then
+    CreateMobileUI()
+end
+
+localPlayer.CharacterAdded:Connect(function()
+    wait(1)
+    CreateMobileUI()
+end)
