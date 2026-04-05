@@ -1,5 +1,5 @@
--- air.wave DELTA MOBILE v2.0 - Compact Tabbed UI
--- Optimized for Delta Mobile Executor
+-- air.wave DELTA MOBILE v2.1 - Fixed & Improved
+-- ESP: Box + Health + Skeleton, FOV Circle, Shoot-to-Aim, Mini Icon
 
 if getgenv().AIRWAVE_DELTA_LOADED then return end
 getgenv().AIRWAVE_DELTA_LOADED = true
@@ -18,9 +18,10 @@ local playerGui = localPlayer:WaitForChild("PlayerGui")
 -- ============================================
 -- CONFIGS
 -- ============================================
-local ESPConfig = {Enabled = false, Boxes = true, Names = true, Distance = true, Health = true, EnemyOnly = false, MaxDist = 1000}
+local ESPConfig = {Enabled = false, Boxes = true, Names = true, Distance = true, Health = true, Skeleton = false, EnemyOnly = false, MaxDist = 1000}
 local AimbotConfig = {Enabled = false, TeamCheck = true, AimPart = "Head", MaxDist = 200, Smoothness = 2, AutoFire = false}
-local SilentAim = {Enabled = false, Target = nil}
+local SilentAim = {Enabled = false}
+local FOVConfig = {Enabled = false, Size = 150}
 local Speed = {Enabled = false, Value = 32}
 local BHOP = {Enabled = false}
 local Fly = {Enabled = false, Speed = 50, BodyG = nil, BodyV = nil}
@@ -28,12 +29,32 @@ local Noclip = {Enabled = false, Connection = nil}
 local AFK = {Enabled = false, Map = "Arena", Weapon = "Assault Rifle"}
 
 -- ============================================
--- ESP SYSTEM (BillboardGui - Delta Compatible)
+-- FOV CIRCLE (GUI-Based for Delta)
+-- ============================================
+local FOVFrame = Instance.new("Frame")
+FOVFrame.Size = UDim2.new(0, FOVConfig.Size * 2, 0, FOVConfig.Size * 2)
+FOVFrame.Position = UDim2.new(0.5, -FOVConfig.Size, 0.5, -FOVConfig.Size)
+FOVFrame.BackgroundTransparency = 1
+FOVFrame.Visible = false
+FOVFrame.ZIndex = 999
+
+local FOVCircle = Instance.new("UICorner")
+FOVCircle.CornerRadius = UDim.new(1, 0)
+FOVCircle.Parent = FOVFrame
+
+local FOVStroke = Instance.new("UIStroke")
+FOVStroke.Thickness = 2
+FOVStroke.Color = Color3.fromRGB(255, 100, 100)
+FOVStroke.Parent = FOVFrame
+
+-- ============================================
+-- ESP SYSTEM (BillboardGui + Skeleton Lines)
 -- ============================================
 local ESPFolder = Instance.new("Folder")
 ESPFolder.Name = "ESP"
 ESPFolder.Parent = workspace
 
+local SkeletonLines = {}
 local ESPStorage = {}
 
 local function IsEnemy(p)
@@ -48,43 +69,43 @@ local function CreateESP(player)
     
     local bb = Instance.new("BillboardGui")
     bb.Name = player.Name
-    bb.Size = UDim2.new(0, 100, 0, 50)
-    bb.StudsOffset = Vector3.new(0, 2.5, 0)
+    bb.Size = UDim2.new(0, 120, 0, 60)
+    bb.StudsOffset = Vector3.new(0, 3, 0)
     bb.AlwaysOnTop = true
     bb.Parent = ESPFolder
     
     local box = Instance.new("Frame")
     box.Name = "Box"
-    box.Size = UDim2.new(1, 0, 0, 35)
-    box.Position = UDim2.new(0, 0, 0, 12)
-    box.BackgroundTransparency = 0.85
+    box.Size = UDim2.new(1, 0, 0, 45)
+    box.Position = UDim2.new(0, 0, 0, 15)
+    box.BackgroundTransparency = 0.9
     box.BorderSizePixel = 2
     box.Parent = bb
     
     local name = Instance.new("TextLabel")
-    name.Size = UDim2.new(1, 0, 0, 12)
+    name.Size = UDim2.new(1, 0, 0, 14)
     name.BackgroundTransparency = 1
     name.Text = player.DisplayName
     name.TextColor3 = Color3.new(1, 1, 1)
     name.TextStrokeTransparency = 0
-    name.TextSize = 9
+    name.TextSize = 10
     name.Font = Enum.Font.GothamBold
     name.Parent = bb
     
     local dist = Instance.new("TextLabel")
     dist.Size = UDim2.new(1, 0, 0, 10)
-    dist.Position = UDim2.new(0, 0, 0, 47)
+    dist.Position = UDim2.new(0, 0, 0, 62)
     dist.BackgroundTransparency = 1
     dist.Text = "0m"
     dist.TextColor3 = Color3.fromRGB(200, 200, 200)
     dist.TextStrokeTransparency = 0
-    dist.TextSize = 8
+    dist.TextSize = 9
     dist.Font = Enum.Font.Gotham
     dist.Parent = bb
     
     local hpBG = Instance.new("Frame")
-    hpBG.Size = UDim2.new(1, -4, 0, 3)
-    hpBG.Position = UDim2.new(0, 2, 0, 38)
+    hpBG.Size = UDim2.new(1, -6, 0, 4)
+    hpBG.Position = UDim2.new(0, 3, 0, 48)
     hpBG.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
     hpBG.BorderSizePixel = 0
     hpBG.Parent = bb
@@ -98,26 +119,108 @@ local function CreateESP(player)
     ESPStorage[player] = {Billboard = bb, Box = box, Name = name, Dist = dist, HP = hp, HPBG = hpBG}
 end
 
+local function CreateSkeletonLine()
+    local line = Instance.new("Frame")
+    line.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+    line.BorderSizePixel = 0
+    line.Visible = false
+    line.Parent = playerGui
+    return line
+end
+
+local function UpdateSkeleton(player, color)
+    if not ESPConfig.Skeleton then
+        if SkeletonLines[player] then
+            for _, line in pairs(SkeletonLines[player]) do
+                line:Destroy()
+            end
+            SkeletonLines[player] = nil
+        end
+        return
+    end
+    
+    local char = player.Character
+    if not char then return end
+    
+    local parts = {
+        {char:FindFirstChild("Head"), char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")},
+        {char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso"), char:FindFirstChild("LowerTorso") or char:FindFirstChild("HumanoidRootPart")},
+        {char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso"), char:FindFirstChild("LeftUpperArm") or char:FindFirstChild("Left Arm")},
+        {char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso"), char:FindFirstChild("RightUpperArm") or char:FindFirstChild("Right Arm")},
+        {char:FindFirstChild("LowerTorso") or char:FindFirstChild("HumanoidRootPart"), char:FindFirstChild("LeftUpperLeg") or char:FindFirstChild("Left Leg")},
+        {char:FindFirstChild("LowerTorso") or char:FindFirstChild("HumanoidRootPart"), char:FindFirstChild("RightUpperLeg") or char:FindFirstChild("Right Leg")},
+    }
+    
+    if not SkeletonLines[player] then
+        SkeletonLines[player] = {}
+        for i = 1, 6 do
+            SkeletonLines[player][i] = CreateSkeletonLine()
+        end
+    end
+    
+    for i, line in pairs(SkeletonLines[player]) do
+        local connection = parts[i]
+        if connection and connection[1] and connection[2] then
+            local p1, onScreen1 = camera:WorldToViewportPoint(connection[1].Position)
+            local p2, onScreen2 = camera:WorldToViewportPoint(connection[2].Position)
+            
+            if onScreen1 and onScreen2 then
+                local distance = (Vector2.new(p1.X, p1.Y) - Vector2.new(p2.X, p2.Y)).Magnitude
+                local angle = math.atan2(p2.Y - p1.Y, p2.X - p1.X) * (180 / math.pi)
+                
+                line.Size = UDim2.new(0, distance, 0, 1.5)
+                line.Position = UDim2.new(0, (p1.X + p2.X) / 2, 0, (p1.Y + p2.Y) / 2)
+                line.Rotation = angle
+                line.Visible = ESPConfig.Enabled and ESPConfig.Skeleton
+                line.BackgroundColor3 = color
+            else
+                line.Visible = false
+            end
+        else
+            line.Visible = false
+        end
+    end
+end
+
 local function RemoveESP(player)
     if ESPStorage[player] then
         if ESPStorage[player].Billboard then ESPStorage[player].Billboard:Destroy() end
         ESPStorage[player] = nil
     end
+    if SkeletonLines[player] then
+        for _, line in pairs(SkeletonLines[player]) do
+            line:Destroy()
+        end
+        SkeletonLines[player] = nil
+    end
 end
 
 RunService.RenderStepped:Connect(function()
+    FOVFrame.Visible = FOVConfig.Enabled
+    FOVFrame.Size = UDim2.new(0, FOVConfig.Size * 2, 0, FOVConfig.Size * 2)
+    FOVFrame.Position = UDim2.new(0.5, -FOVConfig.Size, 0.5, -FOVConfig.Size)
+    
     for _, p in pairs(Players:GetPlayers()) do
         if p == localPlayer then continue end
         
-        if not ESPConfig.Enabled then RemoveESP(p) continue end
+        if not ESPConfig.Enabled then
+            RemoveESP(p)
+            continue
+        end
         
         local isEnemy = IsEnemy(p)
-        if ESPConfig.EnemyOnly and not isEnemy then RemoveESP(p) continue end
+        if ESPConfig.EnemyOnly and not isEnemy then
+            RemoveESP(p)
+            continue
+        end
         
         local char = p.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
         local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if not char or not root or not hum or hum.Health <= 0 then RemoveESP(p) continue end
+        if not char or not root or not hum or hum.Health <= 0 then
+            RemoveESP(p)
+            continue
+        end
         
         if not ESPStorage[p] then CreateESP(p) end
         local esp = ESPStorage[p]
@@ -126,7 +229,11 @@ RunService.RenderStepped:Connect(function()
         
         local myRoot = localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart")
         local dist = myRoot and (root.Position - myRoot.Position).Magnitude or 0
-        if dist > ESPConfig.MaxDist then esp.Billboard.Enabled = false continue end
+        if dist > ESPConfig.MaxDist then
+            esp.Billboard.Enabled = false
+            UpdateSkeleton(p, isEnemy and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(60, 255, 100))
+            continue
+        end
         
         esp.Billboard.Enabled = true
         local color = isEnemy and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(60, 255, 100)
@@ -146,14 +253,17 @@ RunService.RenderStepped:Connect(function()
         local pct = hum.Health / hum.MaxHealth
         esp.HP.Size = UDim2.new(pct, 0, 1, 0)
         esp.HP.BackgroundColor3 = Color3.fromRGB(255 * (1-pct), 255 * pct, 60)
+        
+        UpdateSkeleton(p, color)
     end
 end)
 
 Players.PlayerRemoving:Connect(RemoveESP)
 
 -- ============================================
--- MOBILE AIMBOT
+-- AIMBOT - ONLY WHEN SHOOTING
 -- ============================================
+local IsShooting = false
 local function GetClosest()
     local closest, shortest = nil, math.huge
     local center = Vector2.new(camera.ViewportSize.X/2, camera.ViewportSize.Y/2)
@@ -169,6 +279,13 @@ local function GetClosest()
         local worldDist = (part.Position - camPos).Magnitude
         if worldDist > AimbotConfig.MaxDist then continue end
         
+        if FOVConfig.Enabled then
+            local screenPos, onScreen = camera:WorldToViewportPoint(part.Position)
+            if not onScreen then continue end
+            local distFromCenter = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+            if distFromCenter > FOVConfig.Size then continue end
+        end
+        
         local pos, vis = camera:WorldToViewportPoint(part.Position)
         if not vis then continue end
         
@@ -182,20 +299,17 @@ local function GetClosest()
 end
 
 RunService.RenderStepped:Connect(function()
-    if not AimbotConfig.Enabled then return end
-    local target = GetClosest()
-    if target then
-        local pos = camera:WorldToViewportPoint(target.Position)
-        local dx = (pos.X - camera.ViewportSize.X/2) / AimbotConfig.Smoothness
-        local dy = (pos.Y - camera.ViewportSize.Y/2) / AimbotConfig.Smoothness
-        pcall(function() if mousemoverel then mousemoverel(dx, dy) end end)
-        if AimbotConfig.AutoFire then pcall(mouse1click) end
+    if AimbotConfig.Enabled and IsShooting then
+        local target = GetClosest()
+        if target then
+            local pos = camera:WorldToViewportPoint(target.Position)
+            local dx = (pos.X - camera.ViewportSize.X/2) / AimbotConfig.Smoothness
+            local dy = (pos.Y - camera.ViewportSize.Y/2) / AimbotConfig.Smoothness
+            pcall(function() if mousemoverel then mousemoverel(dx, dy) end end)
+        end
     end
-end)
-
--- Silent Aim
-RunService.Heartbeat:Connect(function()
-    if SilentAim.Enabled then
+    
+    if SilentAim.Enabled and IsShooting then
         local closest, shortest = nil, math.huge
         local center = Vector2.new(camera.ViewportSize.X/2, camera.ViewportSize.Y/2)
         
@@ -205,6 +319,12 @@ RunService.Heartbeat:Connect(function()
             if not head then continue end
             local pos, vis = camera:WorldToViewportPoint(head.Position)
             if not vis then continue end
+            
+            if FOVConfig.Enabled then
+                local distFromCenter = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                if distFromCenter > FOVConfig.Size then continue end
+            end
+            
             local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
             if dist < shortest and dist < 250 then
                 shortest = dist
@@ -215,6 +335,19 @@ RunService.Heartbeat:Connect(function()
         if closest then
             pcall(function() camera.CFrame = CFrame.new(camera.CFrame.Position, closest.Position) end)
         end
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        IsShooting = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        IsShooting = false
     end
 end)
 
@@ -267,7 +400,7 @@ spawn(function()
 end)
 
 -- ============================================
--- COMPACT UI WITH TABS
+-- COMPACT UI WITH TABS + MINI ICON
 -- ============================================
 local function CreateUI()
     for _, g in pairs(playerGui:GetChildren()) do
@@ -279,6 +412,8 @@ local function CreateUI()
     gui.Parent = playerGui
     gui.ResetOnSpawn = false
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    
+    FOVFrame.Parent = gui
     
     local main = Instance.new("Frame")
     main.Size = UDim2.new(0, 200, 0, 280)
@@ -340,10 +475,11 @@ local function CreateUI()
     
     local pages = {}
     local tabs = {}
+    local toggleRefs = {}
     
     local function CreateTab(name)
         local tab = Instance.new("TextButton")
-        tab.Size = UDim2.new(0, 45, 1, 0)
+        tab.Size = UDim2.new(0, 44, 1, 0)
         tab.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
         tab.Text = name
         tab.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -356,8 +492,9 @@ local function CreateUI()
         page.Size = UDim2.new(1, -8, 1, -8)
         page.Position = UDim2.new(0, 4, 0, 4)
         page.BackgroundTransparency = 1
-        page.ScrollBarThickness = 3
-        page.CanvasSize = UDim2.new(0, 0, 0, 200)
+        page.ScrollBarThickness = 4
+        page.ScrollingEnabled = true
+        page.CanvasSize = UDim2.new(0, 0, 0, 400)
         page.Visible = false
         page.Parent = content
         
@@ -365,12 +502,21 @@ local function CreateUI()
         list.Padding = UDim.new(0, 4)
         list.Parent = page
         
+        list:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            page.CanvasSize = UDim2.new(0, 0, 0, list.AbsoluteContentSize.Y + 20)
+        end)
+        
         table.insert(tabs, tab)
         table.insert(pages, page)
         
         tab.MouseButton1Click:Connect(function()
-            for _, t in ipairs(tabs) do t.BackgroundColor3 = Color3.fromRGB(50, 50, 70) t.TextColor3 = Color3.fromRGB(180, 180, 180) end
-            for _, p in ipairs(pages) do p.Visible = false end
+            for _, t in ipairs(tabs) do
+                t.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+                t.TextColor3 = Color3.fromRGB(180, 180, 180)
+            end
+            for _, p in ipairs(pages) do
+                p.Visible = false
+            end
             tab.BackgroundColor3 = Color3.fromRGB(80, 120, 180)
             tab.TextColor3 = Color3.new(1, 1, 1)
             page.Visible = true
@@ -390,7 +536,7 @@ local function CreateUI()
     local miscPage = CreateTab("Misc")
     local farmPage = CreateTab("AFK")
     
-    local function AddToggle(page, text, default, callback)
+    local function AddToggle(page, text, default, callback, id)
         local f = Instance.new("Frame")
         f.Size = UDim2.new(1, 0, 0, 26)
         f.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
@@ -418,6 +564,8 @@ local function CreateUI()
         t.Font = Enum.Font.GothamBold
         t.Parent = f
         Instance.new("UICorner", t).CornerRadius = UDim.new(0, 4)
+        
+        if id then toggleRefs[id] = t end
         
         local s = default
         t.MouseButton1Click:Connect(function()
@@ -547,11 +695,31 @@ local function CreateUI()
         b.MouseButton1Click:Connect(function() if callback then callback() end end)
     end
     
-    -- AIM TAB
-    AddToggle(aimPage, "Aimbot", false, function(v) AimbotConfig.Enabled = v end)
+    -- AIM TAB - with mutual exclusion
+    AddToggle(aimPage, "Aimbot", false, function(v)
+        AimbotConfig.Enabled = v
+        if v and SilentAim.Enabled then
+            SilentAim.Enabled = false
+            if toggleRefs["silentaim"] then
+                toggleRefs["silentaim"].BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+                toggleRefs["silentaim"].Text = "OFF"
+            end
+        end
+    end)
+    AddToggle(aimPage, "Silent Aim", false, function(v)
+        SilentAim.Enabled = v
+        if v and AimbotConfig.Enabled then
+            AimbotConfig.Enabled = false
+            if toggleRefs["aimbot"] then
+                toggleRefs["aimbot"].BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+                toggleRefs["aimbot"].Text = "OFF"
+            end
+        end
+    end, "silentaim")
+    AddToggle(aimPage, "FOV Circle", false, function(v) FOVConfig.Enabled = v end)
+    AddSlider(aimPage, "FOV Size", 50, 150, 400, function(v) FOVConfig.Size = v end)
     AddToggle(aimPage, "Team Check", true, function(v) AimbotConfig.TeamCheck = v end)
     AddToggle(aimPage, "Auto Fire", false, function(v) AimbotConfig.AutoFire = v end)
-    AddToggle(aimPage, "Silent Aim", false, function(v) SilentAim.Enabled = v end)
     AddDropdown(aimPage, "Part", {"Head", "Torso", "HumanoidRootPart"}, "Head", function(v) AimbotConfig.AimPart = v end)
     AddSlider(aimPage, "Max Dist", 50, 200, 1000, function(v) AimbotConfig.MaxDist = v end)
     AddSlider(aimPage, "Smooth", 1, 2, 10, function(v) AimbotConfig.Smoothness = v end)
@@ -562,6 +730,7 @@ local function CreateUI()
     AddToggle(espPage, "Names", true, function(v) ESPConfig.Names = v end)
     AddToggle(espPage, "Distance", true, function(v) ESPConfig.Distance = v end)
     AddToggle(espPage, "Health", true, function(v) ESPConfig.Health = v end)
+    AddToggle(espPage, "Skeleton", false, function(v) ESPConfig.Skeleton = v end)
     AddToggle(espPage, "Enemy Only", false, function(v) ESPConfig.EnemyOnly = v end)
     AddSlider(espPage, "Max Dist", 100, 1000, 5000, function(v) ESPConfig.MaxDist = v end)
     
@@ -609,8 +778,32 @@ local function CreateUI()
     AddDropdown(farmPage, "Map", {"Arena", "Ruins", "Construction", "Desert", "Warehouse"}, "Arena", function(v) AFK.Map = v end)
     AddDropdown(farmPage, "Weapon", {"Assault Rifle", "Handgun", "Fists", "Shotgun", "SMG"}, "Assault Rifle", function(v) AFK.Weapon = v end)
     
+    -- Mini Icon when closed
+    local miniIcon = nil
+    
     close.MouseButton1Click:Connect(function()
-        gui.Enabled = false
+        main.Visible = false
+        
+        if not miniIcon then
+            miniIcon = Instance.new("TextButton")
+            miniIcon.Size = UDim2.new(0, 40, 0, 40)
+            miniIcon.Position = UDim2.new(0, 10, 0.5, -20)
+            miniIcon.BackgroundColor3 = Color3.fromRGB(80, 120, 180)
+            miniIcon.Text = "☰"
+            miniIcon.TextColor3 = Color3.new(1, 1, 1)
+            miniIcon.TextSize = 18
+            miniIcon.Font = Enum.Font.GothamBold
+            miniIcon.Parent = gui
+            miniIcon.Active = true
+            miniIcon.Draggable = true
+            Instance.new("UICorner", miniIcon).CornerRadius = UDim.new(1, 0)
+            
+            miniIcon.MouseButton1Click:Connect(function()
+                main.Visible = true
+                miniIcon.Visible = false
+            end)
+        end
+        miniIcon.Visible = true
     end)
 end
 
